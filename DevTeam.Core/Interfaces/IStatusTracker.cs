@@ -1,40 +1,49 @@
 using System.Threading.Tasks;
+using DevTeam.Core.Models;
 
 namespace DevTeam.Core.Interfaces;
 
 /// <summary>
-/// Tracks the status of tasks and phases in a markdown file (<c>status.md</c>).
-/// Provides read and update operations for both individual tasks and
-/// overall phase status, enabling the orchestrator and agents to query
-/// and modify project progress.
+/// Provides read and update operations for task and phase status within
+/// a <see cref="Project"/>. Acts as the live, in-memory state manager that
+/// persists changes to disk after every mutation.
 /// </summary>
 public interface IStatusTracker
 {
     /// <summary>
-    /// Updates the status of a specific task. If the task already exists
-    /// in the status file, its state is updated; otherwise, a new row
-    /// is appended.
+    /// Updates the state of a specific task within its phase.
+    /// If the task exists, its state and iteration are updated; otherwise
+    /// the task is not found and the call is a no-op.
     /// </summary>
-    /// <param name="taskId">Unique identifier of the task.</param>
-    /// <param name="state">New state value (e.g. "planned", "coding", "testing", "review", "done").</param>
-    /// <param name="phaseId">Identifier of the phase the task belongs to.</param>
-    /// <returns>A task that completes when the status has been updated.</returns>
-    Task UpdateTaskStatusAsync(string taskId, string state, string phaseId);
+    /// <param name="taskId">Unique identifier of the task (e.g. "A-04").</param>
+    /// <param name="state">The new task state.</param>
+    /// <returns>A task that completes when the status has been updated and persisted.</returns>
+    Task UpdateTaskStatusAsync(string taskId, TaskState state);
 
     /// <summary>
-    /// Reads the current status of a specific task.
+    /// Reads the current state of a specific task.
     /// </summary>
     /// <param name="taskId">Unique identifier of the task.</param>
-    /// <returns>The task's current state, or "Unknown" if not found.</returns>
-    Task<string> GetTaskStatusAsync(string taskId);
+    /// <returns>The task's current state, or <see cref="TaskState.NotStarted"/> if not found.</returns>
+    Task<TaskState> GetTaskStatusAsync(string taskId);
 
     /// <summary>
-    /// Updates the overall status of a phase (e.g. "in_progress",
-    /// "complete"). If the phase already exists in the status file,
-    /// its status is updated; otherwise, a new row is inserted.
+    /// Updates the overall status of a phase.
     /// </summary>
     /// <param name="phaseId">Unique identifier of the phase.</param>
-    /// <param name="status">New phase status (e.g. "pending", "in_progress", "complete").</param>
-    /// <returns>A task that completes when the status has been updated.</returns>
-    Task UpdatePhaseStatusAsync(string phaseId, string status);
+    /// <param name="status">The new phase status.</param>
+    /// <returns>A task that completes when the status has been updated and persisted.</returns>
+    Task UpdatePhaseStatusAsync(string phaseId, PhaseStatus status);
+
+    /// <summary>
+    /// Gets the current live <see cref="Project"/> object.
+    /// </summary>
+    /// <returns>The project instance being tracked.</returns>
+    Task<Project> GetProjectAsync();
+
+    /// <summary>
+    /// Saves the current project state to disk in both markdown and JSON formats.
+    /// </summary>
+    /// <returns>A task that completes when persistence is done.</returns>
+    Task SaveAsync();
 }

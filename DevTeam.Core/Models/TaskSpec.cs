@@ -3,12 +3,11 @@ using System.Collections.Generic;
 namespace DevTeam.Core.Models;
 
 /// <summary>
-/// Represents the full specification of a single task within a phase.
-/// Task specs are loaded from YAML files (one per phase) and contain
-/// everything an agent team needs to implement the task: the task
-/// identifier, human-readable name, description, acceptance criteria,
-/// dependencies on other tasks, estimated effort, and the phase it
-/// belongs to.
+/// Represents the full specification of a single task within a phase,
+/// including its definition, acceptance criteria, dependencies, and
+/// runtime status. Task specs are loaded from YAML/markdown files and
+/// carry their own lifecycle state so the system can be paused and
+/// resumed without losing progress.
 /// </summary>
 public class TaskSpec
 {
@@ -55,4 +54,34 @@ public class TaskSpec
     /// "FilePersistence.cs with WAL append and replay").
     /// </summary>
     public string Deliverable { get; set; } = string.Empty;
+
+    // ── Runtime Status (persisted for resume capability) ──────────────
+
+    /// <summary>
+    /// Current lifecycle state of the task.
+    /// </summary>
+    public TaskState State { get; set; } = TaskState.NotStarted;
+
+    /// <summary>
+    /// Current iteration count — incremented each time the task goes
+    /// through a review/feedback cycle.
+    /// </summary>
+    public int Iteration { get; set; }
+
+    /// <summary>
+    /// Maximum iterations allowed before the task is marked as Failed.
+    /// </summary>
+    public int MaxIterations { get; set; } = 3;
+
+    /// <summary>
+    /// Identifier of the DevTeam assigned to this task (e.g. "DT-001"),
+    /// or null if no team has been assigned yet.
+    /// </summary>
+    public string? AssignedDevTeamId { get; set; }
+
+    /// <summary>
+    /// Free-text notes — typically review feedback or status details
+    /// from the most recent iteration.
+    /// </summary>
+    public string? Notes { get; set; }
 }

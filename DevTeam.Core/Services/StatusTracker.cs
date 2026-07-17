@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using DevTeam.Core.Interfaces;
@@ -8,124 +7,135 @@ using DevTeam.Core.Utils;
 namespace DevTeam.Core.Services;
 
 /// <summary>
-/// In-memory implementation of <see cref="IStatusTracker"/> that maintains
-/// the current status of all phases and tasks. State is persisted to disk
-/// by delegating serialization to <see cref="MarkdownSerializer"/>, so the
-/// tracker itself is format-agnostic and can be used with any persistence
-/// strategy by replacing the serializer.
+/// In-memory implementation of <see cref="IStatusTracker"/> that wraps a
+/// <see cref="Project"/> and persists state changes to disk after every
+/// mutation. State is stored in two formats:
+/// <list type="bullet">
+///   <item><b>status.md</b> — human-readable markdown (via <see cref="MarkdownSerializer"/>).</item>
+///   <item><b>status.json</b> — lossless JSON for session resume.</item>
+/// </list>
 /// </summary>
 public class StatusTracker : IStatusTracker
 {
-    private readonly string _statusFilePath;
+    private readonly string _storageDirectory;
+    private readonly string _markdownPath;
+    private readonly string _jsonPath;
     private readonly object _lock = new();
 
-    private readonly Dictionary<string, PhaseStatusEntry> _phases = [];
-    private readonly Dictionary<string, TaskStatusEntry> _tasks = [];
+    /// <summary>
+    /// The live project state managed by this tracker.
+    /// </summary>
+    public Project Project { get; private set; }
 
     /// <summary>
-    /// Creates a new <see cref="StatusTracker"/> that persists status to
-    /// <c>status.md</c> in the specified directory. If the file already
-    /// exists, its contents are loaded into memory.
+    /// Creates a new <see cref="StatusTracker"/>. If a <c>status.json</c>
+    /// file exists in <paramref name="storageDirectory"/>, the project
+    /// is loaded from it; otherwise a fresh <see cref="Project"/> is
+    /// created.
     /// </summary>
-    /// <param name="storageDirectory">Directory for the status file. Created if it does not exist.</param>
-    public StatusTracker(string storageDirectory = "storage")
+    /// <param name="storageDirectory">Directory for status files. Created if it does not exist.</param>
+    /// <param name="project">Optional pre-built project (skips loading from disk).</param>
+    public StatusTracker(string storageDirectory = "storage", Project? project = null)
     {
         if (!Directory.Exists(storageDirectory))
-        {
             Directory.CreateDirectory(storageDirectory);
+
+        _storageDirectory = storageDirectory;
+        _markdownPath = Path.Combine(storageDirectory, "status.md");
+        _jsonPath = Path.Combine(storageDirectory, "status.json");
+
+        if (project is not null)
+        {
+            Project = project;
         }
-        _statusFilePath = Path.Combine(storageDirectory, "status.md");
-        LoadFromDisk();
+        else if (File.Exists(_jsonPath))
+        {
+            Project = MarkdownSerializer.LoadJson(_jsonPath);
+        }
+        else
+        {
+            Project = new Project();
+        }
     }
 
-    private void LoadFromDisk()
+    /// <inheritdoc/>
+    public Task UpdateTaskStatusAsync(string taskId, TaskState state)
     {
-        var (phases, tasks) = MarkdownSerializer.LoadStatus(_statusFilePath);
-        foreach (var phase in phases)
+        lock (_lock)
         {
-            _phases[phase.PhaseId] = phase;
+            var task = Project.GetTask(taskId);
+            if (task is not null)
+            {
+                task.State = state;
+                Project.LastUpdated = System.DateTime.UtcNow;
+                SaveToDisk();
+            }
         }
-        foreach (var task in tasks)
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public Task<TaskState> GetTaskStatusAsync(string taskId)
+    {
+        lock (_lock)
         {
-            _tasks[task.TaskId] = task;
+            var task = Project.GetTask(taskId);
+            return Task.FromResult(task?.State ?? TaskState.NotStarted);
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task UpdatePhaseStatusAsync(string phaseId, PhaseStatus status)
+    {
+        lock (_lock)
+        {
+            var phase = Project.GetPhase(phaseId);
+            if (phase is not null)
+            {
+                phase.Status = status;
+                Project.LastUpdated = System.DateTime.UtcNow;
+                SaveToDisk();
+            }
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc/>
+    public Task<Project> GetProjectAsync()
+    {
+        lock (_lock)
+        {
+            return Task.FromResult(Project);
+        }
+    }
+
+    /// <inheritdoc/>
+    public Task SaveAsync()
+    {
+        lock (_lock)
+        {
+            Project.LastUpdated = System.DateTime.UtcNow;
+            SaveToDisk();
+        }
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Serializes the current project state to a markdown string
+    /// (does not write to disk).
+    /// </summary>
+    /// <returns>A markdown representation of the project.</returns>
+    public string ToMarkdown()
+    {
+        lock (_lock)
+        {
+            return MarkdownSerializer.ToMarkdown(Project);
         }
     }
 
     private void SaveToDisk()
     {
-        MarkdownSerializer.SaveStatus(_statusFilePath, _phases.Values, _tasks.Values);
-    }
-
-    /// <inheritdoc/>
-    public Task UpdateTaskStatusAsync(string taskId, string state, string phaseId)
-    {
-        lock (_lock)
-        {
-            if (_tasks.TryGetValue(taskId, out var existing))
-            {
-                existing.State = state;
-                existing.PhaseId = phaseId;
-                existing.LastUpdated = System.DateTime.UtcNow;
-            }
-            else
-            {
-                _tasks[taskId] = new TaskStatusEntry
-                {
-                    TaskId = taskId,
-                    State = state,
-                    PhaseId = phaseId,
-                    LastUpdated = System.DateTime.UtcNow
-                };
-            }
-            SaveToDisk();
-        }
-        return Task.CompletedTask;
-    }
-
-    /// <inheritdoc/>
-    public Task<string> GetTaskStatusAsync(string taskId)
-    {
-        lock (_lock)
-        {
-            if (_tasks.TryGetValue(taskId, out var entry))
-            {
-                return Task.FromResult(entry.State);
-            }
-        }
-        return Task.FromResult("Unknown");
-    }
-
-    /// <inheritdoc/>
-    public Task UpdatePhaseStatusAsync(string phaseId, string status)
-    {
-        lock (_lock)
-        {
-            if (_phases.TryGetValue(phaseId, out var existing))
-            {
-                existing.Status = status;
-            }
-            else
-            {
-                _phases[phaseId] = new PhaseStatusEntry
-                {
-                    PhaseId = phaseId,
-                    Status = status
-                };
-            }
-            SaveToDisk();
-        }
-        return Task.CompletedTask;
-    }
-
-    /// <summary>
-    /// Serializes the current in-memory status to a markdown string.
-    /// </summary>
-    /// <returns>A markdown representation of all phase and task statuses.</returns>
-    public string ToMarkdown()
-    {
-        lock (_lock)
-        {
-            return MarkdownSerializer.SerializeStatus(_phases.Values, _tasks.Values);
-        }
+        MarkdownSerializer.SaveMarkdown(_markdownPath, Project);
+        MarkdownSerializer.SaveJson(_jsonPath, Project);
     }
 }

@@ -4,148 +4,215 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using DevTeam.Core.Models;
 
 namespace DevTeam.Core.Utils;
 
 /// <summary>
-/// Utility for serializing and deserializing project status data to and
-/// from a markdown file (<c>status.md</c>). The markdown format contains
-/// two tables — one for phase statuses and one for task statuses — making
-/// the status human-readable while remaining machine-parseable.
+/// Utility for serializing and deserializing a <see cref="Project"/> to and
+/// from two formats:
+/// <list type="bullet">
+///   <item><b>Markdown</b> — human-readable for PR review and manual inspection.</item>
+///   <item><b>JSON</b> — machine-readable for fast, lossless session resume.</item>
+/// </list>
 /// </summary>
 public static class MarkdownSerializer
 {
+    private static readonly JsonSerializerOptions JsonOpts = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    // ═══════════════════════════════════════════════════════════════════
+    //  Markdown serialisation
+    // ═══════════════════════════════════════════════════════════════════
+
     /// <summary>
-    /// Serializes phase and task status entries into a markdown string
-    /// with two tables under "## Phases" and "## Tasks" headers.
+    /// Serializes a <see cref="Project"/> into a human-readable markdown
+    /// string containing project metadata, requirements, phases with
+    /// tasks tables, addenda, open questions, and a progress summary.
     /// </summary>
-    /// <param name="phases">Collection of phase status entries to serialize.</param>
-    /// <param name="tasks">Collection of task status entries to serialize.</param>
-    /// <returns>A markdown string representing the full project status.</returns>
-    public static string SerializeStatus(
-        IEnumerable<PhaseStatusEntry> phases,
-        IEnumerable<TaskStatusEntry> tasks)
+    public static string ToMarkdown(Project project)
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine("# Project Status");
+        // Header
+        sb.AppendLine($"# {project.Name}");
+        sb.AppendLine();
+        if (!string.IsNullOrEmpty(project.Description))
+        {
+            sb.AppendLine(project.Description);
+            sb.AppendLine();
+        }
+        sb.AppendLine($"*Last updated: {project.LastUpdated:yyyy-MM-dd HH:mm}Z*");
         sb.AppendLine();
 
-        // Phases table
+        // Requirements
+        sb.AppendLine("## Requirements");
+        sb.AppendLine();
+        sb.AppendLine($"- Status: {project.Requirements.Status}");
+        sb.AppendLine($"- Document: {project.Requirements.FilePath}");
+        if (project.Requirements.ApprovedBy is not null)
+        {
+            var approvedAt = project.Requirements.ApprovedAt?.ToString("yyyy-MM-dd") ?? "";
+            sb.AppendLine($"- Approved by: {project.Requirements.ApprovedBy} ({approvedAt})");
+        }
+        if (project.Requirements.Requirements.Count > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("| ID | Category | Priority | Description |");
+            sb.AppendLine("|---|---|---|---|");
+            foreach (var req in project.Requirements.Requirements)
+            {
+                sb.AppendLine($"| {req.Id} | {req.Category} | {req.Priority} | {req.Description} |");
+            }
+        }
+        sb.AppendLine();
+
+        // Phases
         sb.AppendLine("## Phases");
-        sb.AppendLine("| Phase | Status |");
-        sb.AppendLine("|---|---|");
-        foreach (var phase in phases)
-        {
-            sb.AppendLine($"| {phase.PhaseId} | {phase.Status} |");
-        }
-
         sb.AppendLine();
-
-        // Tasks table
-        sb.AppendLine("## Tasks");
-        sb.AppendLine("| Task ID | State | Phase | Update |");
-        sb.AppendLine("|---|---|---|---|");
-        foreach (var task in tasks)
+        foreach (var phase in project.Phases)
         {
-            sb.AppendLine($"| {task.TaskId} | {task.State} | {task.PhaseId} | {task.LastUpdated:yyyy-MM-dd HH:mm} |");
+            sb.AppendLine($"### Phase {phase.PhaseId}: {phase.Name}");
+            sb.AppendLine();
+            sb.AppendLine($"- Status: {phase.Status}");
+            if (phase.PrNumber is not null)
+                sb.AppendLine($"- PR: #{phase.PrNumber} ({phase.PrStatus ?? "pending"})");
+            sb.AppendLine($"- Goal: {phase.Goal}");
+            sb.AppendLine();
+
+            if (phase.Tasks.Count > 0)
+            {
+                sb.AppendLine("| Task ID | Name | State | Iter | Max | DevTeam | Notes |");
+                sb.AppendLine("|---|---|---|---|---|---|---|");
+                foreach (var task in phase.Tasks)
+                {
+                    var notes = task.Notes ?? "";
+                    var devTeam = task.AssignedDevTeamId ?? "";
+                    sb.AppendLine($"| {task.TaskId} | {task.Name} | {task.State} | {task.Iteration} | {task.MaxIterations} | {devTeam} | {notes} |");
+                }
+                sb.AppendLine();
+            }
+
+            if (phase.Addenda.Count > 0)
+            {
+                sb.AppendLine("#### Addenda");
+                sb.AppendLine();
+                foreach (var addendum in phase.Addenda)
+                {
+                    sb.AppendLine($"**Addendum {addendum.AddendumId}** — {addendum.Reason} ({addendum.Status})");
+                    sb.AppendLine();
+                    if (addendum.Tasks.Count > 0)
+                    {
+                        sb.AppendLine("| Task ID | Name | State | Notes |");
+                        sb.AppendLine("|---|---|---|---|");
+                        foreach (var task in addendum.Tasks)
+                        {
+                            sb.AppendLine($"| {task.TaskId} | {task.Name} | {task.State} | {task.Notes ?? ""} |");
+                        }
+                        sb.AppendLine();
+                    }
+                }
+            }
+
+            if (phase.PhaseGates.Count > 0)
+            {
+                sb.AppendLine("**Phase Gates:**");
+                foreach (var gate in phase.PhaseGates)
+                {
+                    sb.AppendLine($"- [ ] {gate}");
+                }
+                sb.AppendLine();
+            }
         }
+
+        // Open Questions
+        if (project.OpenQuestions.Count > 0)
+        {
+            sb.AppendLine("## Open Questions");
+            sb.AppendLine();
+            sb.AppendLine("| # | From | Question | Status | Answer |");
+            sb.AppendLine("|---|---|----------|--------|--------|");
+            foreach (var q in project.OpenQuestions)
+            {
+                sb.AppendLine($"| {q.Id} | {q.From} | {q.Question} | {q.Status} | {q.Answer ?? ""} |");
+            }
+            sb.AppendLine();
+        }
+
+        // Final Review
+        if (project.FinalReview is not null)
+        {
+            sb.AppendLine("## Final Review");
+            sb.AppendLine();
+            sb.AppendLine($"- Status: {project.FinalReview.Status}");
+            sb.AppendLine($"- Summary: {project.FinalReview.Summary}");
+            sb.AppendLine();
+        }
+
+        // Summary
+        sb.AppendLine("## Project Summary");
+        sb.AppendLine($"- Total Phases: {project.TotalPhases}");
+        sb.AppendLine($"- Completed: {project.CompletedPhases}");
+        sb.AppendLine($"- Overall Progress: {project.ProgressPercent}%");
+        sb.AppendLine($"- Final Review Status: {project.FinalReview?.Status ?? FinalReviewStatus.NotStarted}");
 
         return sb.ToString();
     }
 
     /// <summary>
-    /// Parses a markdown status string (as produced by <see cref="SerializeStatus"/>)
-    /// back into phase and task status entry collections.
+    /// Writes a <see cref="Project"/> as markdown to the specified file path.
     /// </summary>
-    /// <param name="markdown">The markdown content to parse.</param>
-    /// <returns>A tuple of (phases, tasks) parsed from the markdown.</returns>
-    public static (List<PhaseStatusEntry> Phases, List<TaskStatusEntry> Tasks) ParseStatus(string markdown)
+    public static void SaveMarkdown(string filePath, Project project)
     {
-        var phases = new List<PhaseStatusEntry>();
-        var tasks = new List<TaskStatusEntry>();
+        var content = ToMarkdown(project);
+        var dir = Path.GetDirectoryName(filePath);
+        if (dir is not null && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+        File.WriteAllText(filePath, content, Encoding.UTF8);
+    }
 
-        var lines = markdown.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-        string? section = null;
+    // ═══════════════════════════════════════════════════════════════════
+    //  JSON serialisation (lossless, for resume)
+    // ═══════════════════════════════════════════════════════════════════
 
-        foreach (var rawLine in lines)
-        {
-            var line = rawLine.TrimEnd('\r').Trim();
+    /// <summary>
+    /// Serializes a <see cref="Project"/> to a JSON string (indented, camelCase).
+    /// This is the lossless format for saving/loading session state.
+    /// </summary>
+    public static string ToJson(Project project) =>
+        JsonSerializer.Serialize(project, JsonOpts);
 
-            if (line.StartsWith("## Phases"))
-            {
-                section = "phases";
-                continue;
-            }
-            if (line.StartsWith("## Tasks"))
-            {
-                section = "tasks";
-                continue;
-            }
-            if (string.IsNullOrEmpty(section) || !line.StartsWith("|"))
-                continue;
+    /// <summary>
+    /// Deserializes a JSON string back into a <see cref="Project"/>.
+    /// </summary>
+    public static Project FromJson(string json) =>
+        JsonSerializer.Deserialize<Project>(json, JsonOpts)
+            ?? throw new InvalidDataException("Failed to deserialize Project from JSON.");
 
-            // Skip separator rows (|---|---|)
-            if (line.Contains("---"))
-                continue;
-
-            var parts = line.Split('|', StringSplitOptions.RemoveEmptyEntries)
-                            .Select(p => p.Trim())
-                            .ToArray();
-
-            if (section == "phases" && parts.Length >= 2)
-            {
-                phases.Add(new PhaseStatusEntry
-                {
-                    PhaseId = parts[0],
-                    Status = parts[1]
-                });
-            }
-            else if (section == "tasks" && parts.Length >= 4)
-            {
-                DateTime.TryParseExact(parts[3], "yyyy-MM-dd HH:mm",
-                    CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal,
-                    out var lastUpdated);
-
-                tasks.Add(new TaskStatusEntry
-                {
-                    TaskId = parts[0],
-                    State = parts[1],
-                    PhaseId = parts[2],
-                    LastUpdated = lastUpdated
-                });
-            }
-        }
-
-        return (phases, tasks);
+    /// <summary>
+    /// Saves a <see cref="Project"/> as JSON to the specified file path.
+    /// </summary>
+    public static void SaveJson(string filePath, Project project)
+    {
+        var content = ToJson(project);
+        var dir = Path.GetDirectoryName(filePath);
+        if (dir is not null && !Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+        File.WriteAllText(filePath, content, Encoding.UTF8);
     }
 
     /// <summary>
-    /// Loads and parses a status markdown file from disk.
+    /// Loads a <see cref="Project"/> from a JSON file.
     /// </summary>
-    /// <param name="filePath">Path to the markdown status file.</param>
-    /// <returns>A tuple of (phases, tasks) parsed from the file, or empty collections if the file does not exist.</returns>
-    public static (List<PhaseStatusEntry> Phases, List<TaskStatusEntry> Tasks) LoadStatus(string filePath)
+    public static Project LoadJson(string filePath)
     {
         if (!File.Exists(filePath))
-        {
-            return (new List<PhaseStatusEntry>(), new List<TaskStatusEntry>());
-        }
-
-        string content = File.ReadAllText(filePath, Encoding.UTF8);
-        return ParseStatus(content);
-    }
-
-    /// <summary>
-    /// Serializes phase and task status entries to a markdown file on disk.
-    /// </summary>
-    /// <param name="filePath">Path to the output markdown file.</param>
-    /// <param name="phases">Collection of phase status entries to write.</param>
-    /// <param name="tasks">Collection of task status entries to write.</param>
-    public static void SaveStatus(string filePath, IEnumerable<PhaseStatusEntry> phases, IEnumerable<TaskStatusEntry> tasks)
-    {
-        string content = SerializeStatus(phases, tasks);
-        File.WriteAllText(filePath, content, Encoding.UTF8);
+            throw new FileNotFoundException("Project JSON file not found.", filePath);
+        var json = File.ReadAllText(filePath, Encoding.UTF8);
+        return FromJson(json);
     }
 }
