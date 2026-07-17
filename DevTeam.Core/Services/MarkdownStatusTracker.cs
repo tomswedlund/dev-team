@@ -1,17 +1,30 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using DevTeam.Core.Interfaces;
 
 namespace DevTeam.Core.Services;
 
+/// <summary>
+/// File-based implementation of <see cref="IStatusTracker"/> that reads
+/// and writes project status to <c>status.md</c>. The file contains two
+/// markdown tables — one for phase statuses and one for task statuses —
+/// which are updated in place or appended to as tasks and phases
+/// progress through their lifecycle.
+/// </summary>
 public class MarkdownStatusTracker : IStatusTracker
 {
     private readonly string _statusFilePath;
     private readonly object _lock = new();
 
+    /// <summary>
+    /// Creates a new <see cref="MarkdownStatusTracker"/> writing to the
+    /// specified directory.
+    /// </summary>
+    /// <param name="storageDirectory">Directory for the status file. Created if it does not exist.</param>
     public MarkdownStatusTracker(string storageDirectory = "storage")
     {
         if (!Directory.Exists(storageDirectory))
@@ -31,6 +44,7 @@ public class MarkdownStatusTracker : IStatusTracker
         }
     }
 
+    /// <inheritdoc/>
     public async Task UpdateTaskStatusAsync(string taskId, string state, string phaseId)
     {
         lock (_lock)
@@ -62,6 +76,7 @@ public class MarkdownStatusTracker : IStatusTracker
         await Task.CompletedTask;
     }
 
+    /// <inheritdoc/>
     public async Task<string> GetTaskStatusAsync(string taskId)
     {
         lock (_lock)
@@ -79,6 +94,7 @@ public class MarkdownStatusTracker : IStatusTracker
         return "Unknown";
     }
 
+    /// <inheritdoc/>
     public async Task UpdatePhaseStatusAsync(string phaseId, string status)
     {
         lock (_lock)

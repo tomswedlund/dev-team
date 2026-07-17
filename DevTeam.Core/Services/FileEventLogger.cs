@@ -7,11 +7,23 @@ using DevTeam.Core.Interfaces;
 
 namespace DevTeam.Core.Services;
 
+/// <summary>
+/// File-based implementation of <see cref="IEventLogger"/> that appends
+/// events as rows in a markdown table (<c>events.md</c>). Each row
+/// shows the sequence number, timestamp, event type, sender, recipient,
+/// and a summary of the data payload. The file is initialized with a
+/// markdown header if it does not already exist.
+/// </summary>
 public class FileEventLogger : IEventLogger
 {
     private readonly string _logFilePath;
     private readonly object _lock = new();
 
+    /// <summary>
+    /// Creates a new <see cref="FileEventLogger"/> writing to the specified
+    /// directory.
+    /// </summary>
+    /// <param name="storageDirectory">Directory for the log file. Created if it does not exist.</param>
     public FileEventLogger(string storageDirectory = "storage")
     {
         if (!Directory.Exists(storageDirectory))
@@ -31,6 +43,7 @@ public class FileEventLogger : IEventLogger
         }
     }
 
+    /// <inheritdoc/>
     public async Task LogEventAsync(Event @event)
     {
         string dataSummary = @event.Data != null ? string.Join(", ", @event.Data.Keys) : "None";

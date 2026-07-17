@@ -9,11 +9,22 @@ using DevTeam.Core.Interfaces;
 
 namespace DevTeam.Core.Services;
 
+/// <summary>
+/// File-based implementation of <see cref="IPersistence"/> using a
+/// Write-Ahead Log (WAL). Events are serialized as JSON Lines (one JSON
+/// object per line) and appended to <c>event_log.wal</c>. On restart,
+/// the WAL is read line-by-line to restore the full event stream.
+/// </summary>
 public class FilePersistence : IPersistence
 {
     private readonly string _walFilePath;
     private readonly object _lock = new();
 
+    /// <summary>
+    /// Creates a new <see cref="FilePersistence"/> instance writing to
+    /// the specified directory.
+    /// </summary>
+    /// <param name="storageDirectory">Directory for the WAL file. Created if it does not exist.</param>
     public FilePersistence(string storageDirectory = "storage")
     {
         if (!Directory.Exists(storageDirectory))
@@ -23,6 +34,7 @@ public class FilePersistence : IPersistence
         _walFilePath = Path.Combine(storageDirectory, "event_log.wal");
     }
 
+    /// <inheritdoc/>
     public async Task SaveEventAsync(Event @event)
     {
         // Use a JSON line format for the Write-Ahead Log (WAL)
@@ -38,6 +50,7 @@ public class FilePersistence : IPersistence
         await Task.CompletedTask;
     }
 
+    /// <inheritdoc/>
     public async Task<List<Event>> LoadEventsAsync(long afterSequence = 0)
     {
         var events = new List<Event>();

@@ -7,11 +7,23 @@ using DevTeam.Core.Interfaces;
 
 namespace DevTeam.Core.Services;
 
+/// <summary>
+/// File-based implementation of <see cref="IPromptLogger"/> that appends
+/// LLM prompt/response pairs to <c>prompts.md</c>. Each entry includes
+/// the triggering event, agent name, timestamp, the full prompt sent to
+/// the LLM, and the full response received. The file is initialized with
+/// a markdown header if it does not already exist.
+/// </summary>
 public class FilePromptLogger : IPromptLogger
 {
     private readonly string _logFilePath;
     private readonly object _lock = new();
 
+    /// <summary>
+    /// Creates a new <see cref="FilePromptLogger"/> writing to the specified
+    /// directory.
+    /// </summary>
+    /// <param name="storageDirectory">Directory for the log file. Created if it does not exist.</param>
     public FilePromptLogger(string storageDirectory = "storage")
     {
         if (!Directory.Exists(storageDirectory))
@@ -31,6 +43,7 @@ public class FilePromptLogger : IPromptLogger
         }
     }
 
+    /// <inheritdoc/>
     public async Task LogPromptAsync(string agentName, string prompt, string response, Event triggerEvent)
     {
         var sb = new StringBuilder();
