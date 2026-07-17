@@ -69,45 +69,45 @@ forwards messages, tracks phase completion. Pure code — no reasoning required.
 
 **Implementation:** An event subscription table + forward method. See §3.
 
-```python
+\`\`\`csharp
 class GlobalProjectOrchestrator:
     """
     Deterministic event router. No LLM calls.
     """
-    def __init__(self):
-        self.subscriptions: dict[str, list[str]] = {}  # event_type -> [subscriber_id]
-        self.task_teams: dict[str, TaskOrchestrator] = {}
-        self.phase_task_map: dict[str, list[str]] = {}  # phase_id -> [task_ids]
+    public void __init__():
+        this.subscriptions: Dictionary<string, List<string>> = {}  # event_type -> [subscriber_id]
+        this.task_teams: Dictionary<string, TaskOrchestrator> = {}
+        this.phase_task_map: Dictionary<string, List<string>> = {}  # phase_id -> [task_ids]
 
-    def subscribe(self, event_type: str, subscriber_id: str):
-        self.subscriptions.setdefault(event_type, []).append(subscriber_id)
+    public void subscribe(string eventType, string subscriberId):
+        this.subscriptions.TryGetValue(eventType, out var subs); if (subs == null) { subs = new List<string>(); this.subscriptions[eventType] = subs; } subs.Add(subscriberId)
 
-    def publish(self, event: Event):
-        for sub_id in self.subscriptions.get(event.type, []):
-            self._deliver(event, sub_id)
+    public void publish(Event event):
+        foreach (var subId in this.subscriptions.GetValueOrDefault(event.Type, new List<string>()))
+            this._deliver(event, sub_id)
 
-    def create_task_team(self, task_id: str, task_spec: dict, max_iterations: int) -> TaskOrchestrator:
+    public void create_task_team(string taskId, Dictionary<string, string> taskSpec, int maxIterations) returns TaskOrchestrator:
         team = TaskOrchestrator(task_id, task_spec, max_iterations)
-        self.task_teams[task_id] = team
+        this.task_teams[task_id] = team
         return team
 
-    def delete_task_team(self, task_id: str):
-        del self.task_teams[task_id]
-        self.phase_task_map.setdefault(...).remove(task_id)
+    public void delete_task_team(string taskId):
+        del this.task_teams[task_id]
+        foreach (var phaseTasks in this.phaseTaskMap.Values) { phaseTasks.Remove(taskId); }
 
-    def on_task_complete(self, event: Event):
+    public void on_task_complete(Event event):
         """Handle task completion: update status, check phase completion."""
         task_id = event.taskId
-        phase_id = self._phase_for_task(task_id)
-        if all_tasks_done(phase_id):
-            self.publish(Event("phase_complete", from="GPO", to="Planner"))
+        phase_id = this._phase_for_task(task_id)
+        if (AllTasksDone(phaseId))
+            this.publish(Event("phase_complete", from="GPO", to="Planner"))
 
-    def deliver(self, event: Event, subscriber_id: str):
+    public void deliver(Event event, string subscriberId):
         """Route event to the correct handler."""
-        if subscriber_id == "Planner":
+        if (subscriberId == "Planner")
             Planner.handle(event)
-        elif subscriber_id.startswith("DT-"):
-            self.task_teams[subscriber_id].handle(event)
+        else if (subscriberId.StartsWith("DT-"))
+            this.task_teams[subscriber_id].handle(event)
 ```
 
 ### 2.2 DevTeam Orchestrator — Coordinator Module
@@ -118,7 +118,7 @@ Pure code — no reasoning required.
 
 **Implementation:** A state enum with transition methods. See §4.
 
-```python
+\`\`\`csharp
 class TaskOrchestrator:
     """
     Deterministic state machine for a single task's dev team.
@@ -132,93 +132,93 @@ class TaskOrchestrator:
     WAITING_FOR_REVIEW = "waiting_for_review"
     CODE_UPDATED = "code_updated"       # after feedback loop
 
-    def __init__(self, task_id: str, task_spec: dict, max_iterations: int):
-        self.task_id = task_id
-        self.task_spec = task_spec
-        self.max_iterations = max_iterations
-        self.iteration = 0
-        self.state = self.WAITING_FOR_PLAN
-        self.context: dict = {}  # carries code, tests, feedback across transitions
+    public void __init__(string taskId, Dictionary<string, string> taskSpec, int maxIterations):
+        this.task_id = task_id
+        this.task_spec = task_spec
+        this.max_iterations = max_iterations
+        this.iteration = 0
+        this.state = this.WAITING_FOR_PLAN
+        this.context: Dictionary<object, object> = new()  # carries code, tests, feedback across transitions
 
     # ── Flow control (deterministic transitions) ─────────────────
 
-    def on_plan_ready(self, plan: dict):
-        self.context["impl_plan"] = plan
-        self.state = self.PLAN_APPROVED
-        self._prompt_coder("Proceed with implementation. Here is your approved plan.")
+    public void on_plan_ready( Dictionary<string, string> plan):
+        this.context["impl_plan"] = plan
+        this.state = this.PLAN_APPROVED
+        this._prompt_coder("Proceed with implementation. Here is your approved plan.")
 
-    def on_code_ready(self, code: dict):
-        self.context["code"] = code
-        self.state = self.WAITING_FOR_TESTS
-        self._prompt_tester("Write tests for this code.")
+    public void on_code_ready( Dictionary<string, string> code):
+        this.context["code"] = code
+        this.state = this.WAITING_FOR_TESTS
+        this._prompt_tester("Write tests for this code.")
 
-    def on_tests_ready(self, tests: dict):
-        self.context["tests"] = tests
-        self.state = self.WAITING_FOR_REVIEW
-        self._prompt_reviewer("Review the code, tests, and plan.")
+    public void on_tests_ready( Dictionary<string, string> tests):
+        this.context["tests"] = tests
+        this.state = this.WAITING_FOR_REVIEW
+        this._prompt_reviewer("Review the code, tests, and plan.")
 
     # ── Review decision handling ─────────────────────────────────
 
-    def on_review_approved(self):
+    public void on_review_approved():
         """Reviewer says the task is good."""
-        self.state = self.WAITING_FOR_PLAN  # reset for next task
-        return Event("task_complete", from=self.task_id, to="GPO")
+        this.state = this.WAITING_FOR_PLAN  # reset for next task
+        return Event("task_complete", from=this.task_id, to="GPO")
 
-    def on_review_feedback(self, feedback: dict):
+    public void on_review_feedback( Dictionary<string, string> feedback):
         """Reviewer requests changes."""
-        self.iteration += 1
-        if self.iteration >= self.max_iterations:
-            self.state = self.WAITING_FOR_PLAN
-            return Event("task_review_failure", from=self.task_id, to="GPO",
-                         payload={"feedback": feedback, "iterations": self.iteration})
+        this.iteration += 1
+        if (this.iteration >= this.maxIterations)
+            this.state = this.WAITING_FOR_PLAN
+            return Event("task_review_failure", from=this.task_id, to="GPO",
+                         payload={"feedback": feedback, "iterations": this.iteration})
         # Route feedback to Coder, then Tester, then back to Reviewer
-        self.context["feedback"] = feedback
-        self.state = self.CODE_UPDATED
-        self._prompt_coder(f"Apply this feedback:\n{feedback}")
-        return None  # continue the loop
+        this.context["feedback"] = feedback
+        this.state = this.CODE_UPDATED
+        this._prompt_coder($"Apply this feedback:\n{feedback}")
+        return default  # continue the loop
 
     # ── Test feedback (from reviewer) ────────────────────────────
 
-    def on_test_feedback(self, feedback: dict):
+    public void on_test_feedback( Dictionary<string, string> feedback):
         """Reviewer flagged test issues."""
-        self.context["test_feedback"] = feedback
-        self._prompt_tester(f"Reviewer says your tests need work:\n{feedback}")
+        this.context["test_feedback"] = feedback
+        this._prompt_tester($"Reviewer says your tests need work:\n{feedback}")
 
     # ── Context passing ──────────────────────────────────────────
 
-    def _prompt_coder(self, message: str):
+    public void _prompt_coder(string message):
         """Build and send a prompt to the Coder agent."""
-        prompt = self._build_context_prompt(message)
-        self._send_event(Event("agent_prompt", from=self.task_id, to="Coder",
-                                payload={"prompt": prompt, "iteration": self.iteration}))
+        prompt = this._build_context_prompt(message)
+        this._send_event(Event("agent_prompt", from=this.task_id, to="Coder",
+                                payload={"prompt": prompt, "iteration": this.iteration}))
 
-    def _prompt_tester(self, message: str):
-        prompt = self._build_context_prompt(message)
-        self._send_event(Event("agent_prompt", from=self.task_id, to="Tester",
+    public void _prompt_tester(string message):
+        prompt = this._build_context_prompt(message)
+        this._send_event(Event("agent_prompt", from=this.task_id, to="Tester",
                                 payload={"prompt": prompt}))
 
-    def _prompt_reviewer(self, message: str):
-        prompt = self._build_context_prompt(message)
-        self._send_event(Event("agent_prompt", from=self.task_id, to="Reviewer",
+    public void _prompt_reviewer(string message):
+        prompt = this._build_context_prompt(message)
+        this._send_event(Event("agent_prompt", from=this.task_id, to="Reviewer",
                                 payload={"prompt": prompt}))
 
-    def _build_context_prompt(self, instruction: str) -> str:
+    public void _build_context_prompt(string instruction) returns string:
         """Assemble all prior context into a prompt for the agent."""
         parts = [
-            f"Task: {self.task_spec['name']}",
-            f"Spec: {self.task_spec['description']}",
+            $"Task: {this.task_spec['name']}",
+            $"Spec: {this.task_spec['description']}",
             instruction,
         ]
-        if "impl_plan" in self.context:
-            parts.append(f"\nImplementation Plan:\n{self.context['impl_plan']}")
-        if "code" in self.context:
-            parts.append(f"\nCode:\n{self.context['code']}")
-        if "tests" in self.context:
-            parts.append(f"\nTests:\n{self.context['tests']}")
-        if "feedback" in self.context:
-            parts.append(f"\nReview Feedback:\n{self.context['feedback']}")
-        if "iteration" in self.context:
-            parts.append(f"\nIteration: {self.iteration}/{self.max_iterations}")
+        if (this.context.ContainsKey("impl_plan"))
+            sb.AppendLine("\nImplementation Plan:\n{this.context['impl_plan']}")
+        if (this.context.ContainsKey("code"))
+            sb.AppendLine("\nCode:\n{this.context['code']}")
+        if (this.context.ContainsKey("tests"))
+            sb.AppendLine("\nTests:\n{this.context['tests']}")
+        if (this.context.ContainsKey("feedback"))
+            sb.AppendLine("\nReview Feedback:\n{this.context['feedback']}")
+        if (this.context.ContainsKey("iteration"))
+            sb.AppendLine("\nIteration: {this.iteration}/{this.max_iterations}")
         return "\n".join(parts)
 ```
 
@@ -294,7 +294,7 @@ You are the Tester. Your responsibilities:
    write tests that exercise it at least once. Include:
    - Happy-path / success cases
    - Error / exception cases
-   - Edge cases (empty inputs, boundary values, nil/None)
+   - Edge cases (empty inputs, boundary values, null)
    - Integration if the task touches multiple components
 2. TEST EXECUTION: Actually run the tests. Do not just write them — verify
    they all pass. Report pass/fail status with details on any failures.
@@ -447,7 +447,7 @@ The event bus has three layers:
 
 #### 3.4.1 Routing Layer — Interface
 
-```python
+\`\`\`csharp
 class EventBus:
     """
     In-process pub/sub event bus.
@@ -461,16 +461,16 @@ class EventBus:
 
     # -- Subscription --
 
-    def subscribe(self, event_type: str, subscriber_id: str,
-                  handler: Callable[[Event], None] = None): ...
+    public void subscribe(string eventType, string subscriberId,
+                  handler: Func<Event, Task>? = null): ...
 
-    def unsubscribe(self, event_type: str, subscriber_id: str): ...
+    public void unsubscribe(string eventType, string subscriberId): ...
 
-    def list_subscriptions(self) -> Dict[str, List[str]]: ...
+    public void list_subscriptions() returns Dictionary<string, List<string>>: ...
 
     # -- Publish --
 
-    def publish(self, event: Event) -> List[str]:
+    public void publish(Event event) returns List<string>:
         """
         Publish an event. Steps:
           1. Tag event with correlation_id
@@ -482,7 +482,7 @@ class EventBus:
         """
         ...
 
-    def publish_blocking(self, event: Event) -> Event:
+    public void publish_blocking(Event event) returns Event:
         """
         Publish and BLOCK until a reply arrives (reply_to = event.id).
         Used for Planner <-> User clarifying questions.
@@ -492,13 +492,13 @@ class EventBus:
 
     # -- Context --
 
-    def set_context(self, key: str, value: Any): ...
-    def get_context(self, key: str, default=None) -> Any: ...
+    public void set_context(string key, value: Any): ...
+    public void get_context(string key, null) returns object: ...
 
     # -- Lifecycle --
 
-    def shutdown(self): ...
-    def is_running(self) -> bool: ...
+    public void shutdown(): ...
+    public void is_running() returns bool: ...
 ```
 
 **Dispatch algorithm:** For each published event, the bus:
@@ -530,22 +530,22 @@ Events are persisted in two formats:
 1. **WAL (`events.jsonl`)**: Machine-readable append-only log for durability and replay.
 2. **Audit log (`events.md`)**: Human-readable Markdown for user review.
 
-```python
+\`\`\`csharp
 class EventBus:
     """Persistence interface."""
 
-    def _persist_event(self, event: Event):
+    public void _persist_event(Event event):
         """Append event to JSONL write-ahead log. One JSON object per line."""
         ...
 
-    def replay(self, after_seq: int = 0) -> List[Event]:
+    public void replay( int afterSeq = 0) returns List<Event>:
         """
         Replay events from WAL after a given sequence number.
         Used to reconstruct in-memory state after a crash.
         """
         ...
 
-    def _audit_log(self, event: Event, delivered_to: List[str]):
+    public void _audit_log(Event event, List<string> deliveredTo):
         """Append a human-readable entry to events.md."""
         ...
 ```
@@ -582,7 +582,7 @@ The bus bridges to LLM agents through an **AgentAdapter** — one per agent.
 The adapter wraps events in LLM prompts, calls the LLM API, parses responses,
 and publishes results back as Events.
 
-```python
+\`\`\`csharp
 class AgentAdapter:
     """
     Adapts an LLM-backed agent to the event bus interface.
@@ -594,18 +594,18 @@ class AgentAdapter:
       4. Publishes the result as a new event via the bus
     """
 
-    def __init__(self, agent_name: str, system_prompt: str,
-                 bus: EventBus, llm_client: LLMClient): ...
+    public void __init__( string agentName, string systemPrompt,
+                 EventBus bus, llm_client: LLMClient): ...
 
-    def receive(self, event: Event):
+    public void receive(Event event):
         """Entry point. Wraps event in prompt, calls LLM, publishes result."""
         ...
 
-    def _build_prompt(self, event: Event) -> str:
+    public void _build_prompt(Event event) returns string:
         """Convert event into an LLM prompt with system prompt + context."""
         ...
 
-    def _parse_response(self, llm_response: str, incoming_event: Event) -> Optional[Event]:
+    public void _parse_response( string llmResponse, Event incomingEvent) returns Event?:
         """
         Parse the LLM response into an Event.
 
@@ -616,9 +616,9 @@ class AgentAdapter:
         """
         ...
 
-    def _log_prompt(self, event: Event, prompt: str): ...
-    def _log_response(self, event: Event, response: str): ...
-    def reset_history(self): ...
+    public void _log_prompt(Event event, string prompt): ...
+    public void _log_response(Event event, string response): ...
+    public void reset_history(): ...
 ```
 
 **LLM response protocol:** Each LLM agent is instructed to begin its response
@@ -668,63 +668,63 @@ Write production code.
 Coordinators (GPO and DevTeam Orchestrator) register with the bus directly.
 They receive raw `Event` objects and dispatch to handlers by event type.
 
-```python
+\`\`\`csharp
 class GlobalProjectOrchestrator:
     """
     Coordinator that registers with the event bus.
     Subscribes to task/phase lifecycle events.
     """
-    def __init__(self, bus: EventBus, project_dir: str):
+    public void __init__( EventBus bus, string projectDir):
         bus.set_context("GPO", self)
-        bus.subscribe("task_complete", "GPO", self.on_task_complete)
-        bus.subscribe("task_review_failure", "GPO", self.on_task_review_failure)
-        bus.subscribe("phase_complete", "GPO", self.on_phase_complete)
-        bus.subscribe("addendum_tasks_created", "GPO", self.on_addendum_created)
+        bus.subscribe("task_complete", "GPO", this.on_task_complete)
+        bus.subscribe("task_review_failure", "GPO", this.on_task_review_failure)
+        bus.subscribe("phase_complete", "GPO", this.on_phase_complete)
+        bus.subscribe("addendum_tasks_created", "GPO", this.on_addendum_created)
 
-    def receive(self, event: Event): ...
+    public void receive(Event event): ...
 
     # Event handlers (called by bus dispatcher):
-    def on_task_complete(self, event: Event): ...
-    def on_task_review_failure(self, event: Event): ...
-    def on_phase_complete(self, event: Event): ...
-    def on_addendum_created(self, event: Event): ...
+    public void on_task_complete(Event event): ...
+    public void on_task_review_failure(Event event): ...
+    public void on_phase_complete(Event event): ...
+    public void on_addendum_created(Event event): ...
 
-    def create_task_team(self, task_id: str, task_spec: dict,
-                         max_iterations: int, phase_id: str) -> TaskOrchestrator: ...
+    public void create_task_team(string taskId, Dictionary<string, string> taskSpec,
+                         int maxIterations, string phaseId) returns TaskOrchestrator: ...
 ```
 
-```python
+\`\`\`csharp
 class TaskOrchestrator:
     """
     Coordinator that runs a single task's dev team.
-    Maintains per-task state: iteration count, context dict, state machine.
+    Maintains per-task state: iteration count, context Dictionary<object, object>, state machine.
     """
-    def __init__(self, task_id: str, task_spec: dict, max_iterations: int,
-                 bus: EventBus, project_dir: str):
-        bus.set_context(f"DT-{task_id}", self)
+    public void __init__(string taskId, Dictionary<string, string> taskSpec, int maxIterations,
+                 EventBus bus, string projectDir):
+        bus.set_context($"DT-{task_id}", self)
         # States: WAITING_FOR_PLAN, WAITING_FOR_CODE, WAITING_FOR_TESTS,
         #         WAITING_FOR_REVIEW, COMPLETE, FAILED, CODE_UPDATED
 
-    def receive(self, event: Event): ...
+    public void receive(Event event): ...
 
     # State transitions:
-    def on_task_assigned(self, event: Event): ...
-    def on_impl_plan_ready(self, event: Event): ...
-    def on_code_ready(self, event: Event): ...
-    def on_tests_ready(self, event: Event): ...
-    def on_review_approved(self, event: Event): ...
-    def on_review_feedback(self, event: Event): ...
-    def on_test_feedback(self, event: Event): ...
+    public void on_task_assigned(Event event): ...
+    public void on_impl_plan_ready(Event event): ...
+    public void on_code_ready(Event event): ...
+    public void on_tests_ready(Event event): ...
+    public void on_review_approved(Event event): ...
+    public void on_review_feedback(Event event): ...
+    public void on_test_feedback(Event event): ...
 
-    def _make_prompt(self, recipient: str, message: str) -> Event:
+    public void _make_prompt( string recipient, string message) returns Event:
         """Build a prompt event with full task context for an LLM agent."""
         ...
 ```
 
 **Registration flow:** When GPO creates a DevTeam:
 1. GPO instantiates `TaskOrchestrator(task_id, task_spec, max_iterations, bus, project_dir)`
-2. TaskOrchestrator calls `bus.set_context(f"DT-{task_id}", self)`
-3. GPO calls `bus.subscribe("task_assigned", f"DT-{task_id}", team.receive)`
+2. TaskOrchestrator calls `bus.set_context($"DT-{task_id}", self)`
+3. GPO calls `bus.subscribe("task_assigned", $"DT-{task_id}", team.receive)`
 4. GPO publishes `task_started` to notify Planner
 5. GPO publishes `task_assigned` to the new DevTeam — which triggers the first state transition
 ### 3.5 End-to-End Delivery Flow
@@ -848,7 +848,7 @@ Events are published with `to: "<specific_id>"`. The bus only delivers to
 subscribers whose id matches the recipient. This is the default and most
 efficient mode.
 
-```python
+\`\`\`csharp
 # Planner assigns a task only to GPO
 bus.publish(Event.create("task_assigned", from="Planner", to="GPO", ...))
 ```
@@ -858,7 +858,7 @@ bus.publish(Event.create("task_assigned", from="Planner", to="GPO", ...))
 Events with `to: "*"` are delivered to ALL subscribers of that event type.
 Used for system-wide notifications.
 
-```python
+\`\`\`csharp
 # Notify everyone that a new phase started
 bus.publish(Event.create("phase_started", from="Planner", to="*", ...))
 ```
@@ -868,7 +868,7 @@ bus.publish(Event.create("phase_started", from="Planner", to="*", ...))
 For interactions that require a synchronous response (Planner ↔ User), the
 publisher blocks until the response arrives.
 
-```python
+\`\`\`csharp
 # Planner asks User a question
 event = Event.create("clarification_question", from="Planner", to="User",
                      payload={"question": "Should we use HTTP or TCP?"})
@@ -882,13 +882,13 @@ bus.publish_blocking(event)  # blocks until User replies
 
 Subscriptions can include a predicate for fine-grained filtering:
 
-```python
+\`\`\`csharp
 # Only deliver task_complete events for tasks in a specific phase
 bus.subscribe("task_complete", "GPO",
-              predicate=lambda e: e.phase == active_phase_id)
+              predicate: e => e.phase == activePhaseId)
 ```
 
-The predicate receives the full Event and returns True if the subscriber
+The predicate receives the full Event and returns true if the subscriber
 wants to receive this specific instance.
 
 ### 3.7 LLM Prompt Wrapping
@@ -927,8 +927,8 @@ LLM Response (structured text):
   TASK_ID: T1.1
   ## Response:
   I have implemented the event bus with the following files:
-  1. event_bus.py - Main EventBus class with subscribe/publish methods
-  2. event.py - Event dataclass definition
+  1. event_bus.cs - Main EventBus class with subscribe/publish methods
+  2. event.cs - Event record definition
   ...
 ```
 
@@ -944,9 +944,9 @@ Component             | Subscribes To                              | Type
 GPO (coordinator)     | task_complete, task_review_failure         | code
 Planner (LLM agent)   | phase_complete, pr_ready, project_complete | agent
 DT Orchestrator (code)| task_assigned (self-transition)            | code
-Coder (LLM agent)     | impl_plan_ready (self), code_ready         | agent
-Tester (LLM agent)    | tests_ready (self), test_feedback          | agent
-Reviewer (LLM agent)  | review_approved (self), review_feedback    | agent
+Coder (LLM agent)     | impl_plan_ready , code_ready         | agent
+Tester (LLM agent)    | tests_ready , test_feedback          | agent
+Reviewer (LLM agent)  | review_approved , review_feedback    | agent
 User                  | planner_message, pr_ready, project_complete| human
 EventBus (system)     | agent_prompt (to route to correct adapter) | system
 ```
@@ -992,7 +992,7 @@ Agent LLM response
   the orchestrators' tools.
 - **Single bus, one process**: No IPC, no network sockets. The bus is a Python
   object shared via reference. Attack surface is minimal.
-- **Immutable events**: Events are dataclasses (effectively immutable after
+- **Immutable events**: Events are records (effectively immutable after
   construction). No subscriber can modify another's events.
 
 ---
@@ -1076,7 +1076,7 @@ on_event(event):
     case "review_feedback":
       iteration += 1
       context.feedback = event.payload
-      if iteration >= max_iterations:
+      if (iteration >= maxIterations)
         state = FAILED
         # Emit "task_review_failure" to GPO
       else:
@@ -1101,7 +1101,7 @@ on_event(event):
 
 The Orchestrator maintains a `context` dictionary that accumulates across transitions:
 
-```python
+\`\`\`csharp
 context = {
     "task_spec": {...},         # from Planner
     "impl_plan": "...",         # from Coder (set once plan approved)
@@ -1344,24 +1344,24 @@ multi-agent-orchestrator/
 │   └── DESIGN.md                  # This document
 ├── src/
 │   ├── orchestrator/
-│   │   ├── global_orchestrator.py  # GPO: event router + subscriber table
-│   │   ├── task_orchestrator.py    # DT Orchestrator: state machine
-│   │   └── message_bus.py          # Event bus pub/sub implementation
+│   │   ├── global_orchestrator.cs  # GPO: event router + subscriber table
+│   │   ├── task_orchestrator.cs    # DT Orchestrator: state machine
+│   │   └── message_bus.cs          # Event bus pub/sub implementation
 │   ├── agents/
-│   │   ├── planner.py             # Planner LLM agent wrapper
-│   │   ├── coder.py               # Coder LLM agent wrapper
-│   │   ├── tester.py              # Tester LLM agent wrapper
-│   │   └── reviewer.py            # Reviewer LLM agent wrapper
+│   │   ├── planner.cs             # Planner LLM agent wrapper
+│   │   ├── coder.cs               # Coder LLM agent wrapper
+│   │   ├── tester.cs              # Tester LLM agent wrapper
+│   │   └── reviewer.cs            # Reviewer LLM agent wrapper
 │   ├── llm/
-│   │   ├── client.py              # LLM API client
-│   │   ├── prompt_builder.py      # Constructs prompts from events
-│   │   └── system_prompts.py      # System prompts for LLM agents only
+│   │   ├── client.cs              # LLM API client
+│   │   ├── prompt_builder.cs      # Constructs prompts from events
+│   │   └── system_prompts.cs      # System prompts for LLM agents only
 │   ├── git/
-│   │   └── repo_manager.py        # Branch, commit, PR management
+│   │   └── repo_manager.cs        # Branch, commit, PR management
 │   ├── status/
-│   │   └── tracker.py             # Status document reader/writer
+│   │   └── tracker.cs             # Status document reader/writer
 │   └── logging/
-│       └── event_logger.py        # Event and prompt logger
+│       └── event_logger.cs        # Event and prompt logger
 ├── templates/
 │   ├── task_spec.yaml             # Template for task specifications
 │   ├── phase_plan.yaml            # Template for phase plans
@@ -1434,7 +1434,7 @@ implementations for in-memory mocks.
 
 ### 12.1 Service Interface Layer
 
-Each service in the system is defined by a Python protocol (or abstract base class)
+Each service in the system is defined by a C# interface (or abstract base class)
 that describes only the surface that callers need. Implementations are free to add
 extra methods, but callers must never depend on implementation-specific APIs.
 
@@ -1455,63 +1455,60 @@ function or a module-level factory). Each component declares its dependencies in
 its `__init__()` and stores them as private instance attributes. No component
 constructs its own dependencies — that keeps every layer independently testable.
 
-```python
+\`\`\`csharp
 class TaskOrchestrator:
-    def __init__(
-        self,
-        task_id: str,
-        task_spec: dict,
-        max_iterations: int,
-        bus: EventBus,
+    public void __init__(
+        string taskId,
+        Dictionary<string, string> taskSpec,
+        int maxIterations,
+        EventBus bus,
         project_dir: Path,
     ):
-        self.task_id = task_id
-        self.task_spec = task_spec
-        self.max_iterations = max_iterations
-        self.bus = bus                    # injected
-        self.project_dir = project_dir
-        self.state = TaskState.WAITING_FOR_PLAN
-        self.iteration = 0
-        self.context: dict = {}
+        this.task_id = task_id
+        this.task_spec = task_spec
+        this.max_iterations = max_iterations
+        this.bus = bus                    # injected
+        this.project_dir = project_dir
+        this.state = TaskState.WAITING_FOR_PLAN
+        this.iteration = 0
+        this.context: Dictionary<object, object> = new()
 
-    def receive(self, event: Event): ...
+    public void receive(Event event): ...
     # ... transition methods
 ```
 
-```python
+\`\`\`csharp
 class AgentAdapter:
-    def __init__(
-        self,
-        agent_name: str,
-        system_prompt: str,
-        bus: EventBus,
+    public void __init__(
+        string agentName,
+        string systemPrompt,
+        EventBus bus,
         llm_client: ILlmClient,
         logger: IEventLogger,
         status_tracker: IStatusTracker,
     ):
-        self.agent_name = agent_name
-        self.system_prompt = system_prompt
-        self.bus = bus
-        self.llm_client = llm_client      # injected
-        self.logger = logger
-        self.status_tracker = status_tracker
+        this.agent_name = agent_name
+        this.system_prompt = system_prompt
+        this.bus = bus
+        this.llm_client = llm_client      # injected
+        this.logger = logger
+        this.status_tracker = status_tracker
 
-    def receive(self, event: Event): ...
+    public void receive(Event event): ...
 ```
 
-```python
+\`\`\`csharp
 class GlobalProjectOrchestrator:
-    def __init__(
-        self,
-        bus: EventBus,
+    public void __init__(
+        EventBus bus,
         project_dir: Path,
         repo_manager: IRepoManager,
         status_tracker: IStatusTracker,
     ):
-        self.bus = bus
-        self.project_dir = project_dir
-        self.repo_manager = repo_manager  # injected
-        self.status_tracker = status_tracker
+        this.bus = bus
+        this.project_dir = project_dir
+        this.repo_manager = repo_manager  # injected
+        this.status_tracker = status_tracker
 ```
 
 **Why constructor injection?**
@@ -1527,8 +1524,8 @@ class GlobalProjectOrchestrator:
 At runtime, the application creates real implementations once and wires them
 top-down:
 
-```python
-def create_app(project_dir: Path) -> GlobalProjectOrchestrator:
+\`\`\`csharp
+public void create_app(project_dir: Path) -> GlobalProjectOrchestrator:
     # 1. Create shared infrastructure services
     bus = PersistedEventBus(
         persistence=FilePersistence(project_dir / "wal.jsonl"),
@@ -1567,13 +1564,13 @@ def create_app(project_dir: Path) -> GlobalProjectOrchestrator:
 ### 12.4 Unit Testing with Mocks
 
 Tests construct the component under test with mock collaborators. No network, no
-filesystem, no LLM — just pure Python assertions.
+filesystem, no LLM — just pure C# assertions.
 
-```python
+\`\`\`csharp
 from unittest.mock import MagicMock, patch
 from myapp.testing import InMemoryEventBus, InMemoryPersistence
 
-def test_planner_submits_phase_plan():
+public void test_planner_submits_phase_plan():
     # 1. Create mock services
     bus = InMemoryEventBus()
     persistence = MagicMock()
@@ -1614,7 +1611,7 @@ def test_planner_submits_phase_plan():
     assert "project_name" in call_args
 
     # 7. Verify the planner published the phase_plan event
-    published = [e for e in bus.published_events if e.type == "phase_plan"]
+    var published = bus.publishedEvents.Where(e => e.Type == "phase_plan").ToList()
     assert len(published) == 1
     assert "T1.1" in published[0].payload["description"]
 ```
@@ -1623,48 +1620,48 @@ def test_planner_submits_phase_plan():
 
 Provide lightweight in-memory replacements of critical interfaces for testing:
 
-```python
+\`\`\`csharp
 class InMemoryEventBus(EventBus):
     """Event bus that routes messages in-process, no WAL, no threads."""
 
-    def __init__(self):
-        self.subscriptions: dict[str, list[tuple[str, Callable]]] = {}
-        self.published_events: list[Event] = []
+    public void __init__():
+        this.subscriptions = new Dictionary<string, List<(string, Func<Event, Task>)>>();
+        this.publishedEvents = new List<Event>();
 
-    def subscribe(self, event_type, subscriber_id, handler=None):
-        self.subscriptions.setdefault(event_type, []).append((subscriber_id, handler))
+    public void subscribe( event_type, subscriber_id, handler = null):
+        this.subscriptions.TryGetValue(eventType, out var subs); if (subs == null) { subs = new List<(string, Func<Event, Task>)>(); this.subscriptions[eventType] = subs; } subs.Add((subscriberId, handler))
 
-    def publish(self, event):
-        self.published_events.append(event)
-        for sub_id, handler in self.subscriptions.get(event.type, []):
-            if sub_id == "*":
+    public void publish( event):
+        this.publishedEvents.Add(event)
+        foreach (var (subId, handler) in this.subscriptions.GetValueOrDefault(event.Type, new List<(string, Func<Event, Task>)>()))
+            if (subId == "*")
                 handler(event)
-            elif sub_id == event.target:
+            else if (subId == event.target)
                 handler(event)
 
-    def start(self): ...
-    def shutdown(self): ...
+    public void start(): ...
+    public void shutdown(): ...
 
 
 class InMemoryPersistence(Persistence):
     """WAL and prompt/event logs held entirely in memory."""
 
-    def __init__(self):
-        self.wal_events: list[Event] = []
-        self.prompt_log: list[dict] = []
-        self.event_log: list[dict] = []
+    public void __init__():
+        this.wal_events: List<Event> = []
+        this.prompt_log: List<Dictionary<object, object>> = []
+        this.event_log: List<Dictionary<object, object>> = []
 
-    def save_event(self, event: Event):
-        self.wal_events.append(event)
+    public void save_event(Event event):
+        this.walEvents.Add(event)
 
-    def load_replay(self) -> list[Event]:
-        return list(self.wal_events)
+    public void load_replay() -> List<Event>:
+        return list(this.wal_events)
 
-    def log_prompt(self, entry: dict):
-        self.prompt_log.append(entry)
+    public void log_prompt( Dictionary<object, object> entry):
+        this.promptLog.Add(entry)
 
-    def log_event(self, entry: dict):
-        self.event_log.append(entry)
+    public void log_event( Dictionary<object, object> entry):
+        this.eventLog.Add(entry)
 ```
 
 ### 12.6 Interface Contract Checklist
@@ -1676,8 +1673,8 @@ Before declaring a new service interface, verify it passes all of the following:
 - [ ] **Testable in isolation**: A mock can satisfy every method without external
       dependencies (no file I/O, no network, no process spawning).
 - [ ] **Method signature stability**: Adding new parameters requires a default value
-      (e.g., `default=None`) so existing callers are not broken.
-- [ ] **Return types are consistent**: Methods return concrete dataclasses or `None`,
+      (e.g., `null`) so existing callers are not broken.
+- [ ] **Return types are consistent**: Methods return concrete records or `null`,
       never raw dicts or tuples that change shape between implementations.
 - [ ] **Errors are typed**: Each method documents its exception types.
   Implementations raise those types (or subclasses), not `Exception`.
@@ -1721,8 +1718,8 @@ In tests: in-memory or mock implementations (InMemoryEventBus, MagicMock)
 
 ### 12.8 Pseudocode: Testable DT Orchestrator Test
 
-```python
-def test_dt_orchestrator_iterates_on_review_feedback():
+\`\`\`csharp
+public void test_dt_orchestrator_iterates_on_review_feedback():
     bus = InMemoryEventBus()
     planner = build_mock_adapter("Planner", bus)
     coder = build_mock_adapter("Coder", bus)
@@ -1774,7 +1771,7 @@ def test_dt_orchestrator_iterates_on_review_feedback():
     bus.publish(Event("review_approved", "Reviewer", "DT-T1.1", {}))
 
     assert dt.state == TaskState.DONE
-    assert len([e for e in bus.published_events
+    Debug.Assert(bus.publishedEvents.Count(e => e.Type == "phase_plan")
                 if e.type == "task_complete"]) == 1
 ```
 
